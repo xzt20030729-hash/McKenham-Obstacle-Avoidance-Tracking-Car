@@ -1,0 +1,76 @@
+C51 COMPILER V9.60.7.0   LIGHT                                                             11/10/2025 17:35:04 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE LIGHT
+OBJECT MODULE PLACED IN .\Objects\Light.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE Driver\Light.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(.\Lib;.\Driver;.\Us
+                    -er) DEBUG OBJECTEXTEND PRINT(.\Listings\Light.lst) OBJECT(.\Objects\Light.obj)
+
+line level    source
+
+   1          #include "Light.h"
+   2          #include "GPIO.h"
+   3          
+   4          static void GPIO_config(void) {
+   5   1          P0_MODE_OUT_PP(GPIO_Pin_7);
+   6   1          P5_MODE_OUT_PP(GPIO_Pin_2);
+   7   1      }
+   8          void Light_init(){
+   9   1      
+  10   1          GPIO_config();
+  11   1      }
+  12          
+  13          // µãÁÁ
+  14          void Light_on(Light light){
+  15   1          switch (light)
+  16   1          {
+  17   2              case LIGHT_LEFT:
+  18   2                  LED_L = 1;
+  19   2                      break;
+  20   2              case LIGHT_RIGHT:
+  21   2                  LED_R = 1;
+  22   2                      break;
+  23   2              case LIGHT_ALL:
+  24   2                  LED_R = LED_L = 1;
+  25   2                      break;
+  26   2              default:
+  27   2                      break;
+  28   2          }
+  29   1          
+  30   1      }
+  31          
+  32          // Ï¨Ãð
+  33          void Light_off(Light light){
+  34   1      
+  35   1          switch (light)
+  36   1          {
+  37   2              case LIGHT_LEFT:
+  38   2                  LED_L = 0;
+  39   2                      break;
+  40   2              case LIGHT_RIGHT:
+  41   2                  LED_R = 0;
+  42   2                      break;
+  43   2              case LIGHT_ALL:
+  44   2                  LED_R = LED_L = 0;
+  45   2                      break;
+  46   2              default:
+  47   2                      break;
+  48   2          }
+  49   1          
+  50   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     60    ----
+C51 COMPILER V9.60.7.0   LIGHT                                                             11/10/2025 17:35:04 PAGE 2   
+
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

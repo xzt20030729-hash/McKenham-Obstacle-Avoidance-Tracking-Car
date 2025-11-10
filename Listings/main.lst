@@ -1,0 +1,239 @@
+C51 COMPILER V9.60.7.0   MAIN                                                              11/10/2025 17:35:03 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE User\main.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(.\Lib;.\Driver;.\User)
+                    - DEBUG OBJECTEXTEND PRINT(.\Listings\main.lst) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          #include "config.h"
+   2          #include "delay.h"
+   3          
+   4          #include "GPIO.h"
+   5          #include "UART.h"
+   6          #include "Switch.h"
+   7          #include "NVIC.h"
+   8          #include "STC8H_PWM.h"
+   9          
+  10          #include "Light.h"
+  11          #include "Key.h"
+  12          #include "Battery.h"
+  13          #include "Buzzer.h"
+  14          #include "Ultrasonic.h"
+  15          #include "Motors.h"
+  16          #include "Tracker.h"
+  17          
+  18          /**********************
+  19          需求: 测试4个电机的正反转
+  20          
+  21          任务1: 按键扫描
+  22          
+  23          按下按键: 切换前进, 后退, 左平移, 右平移, 掉头
+  24          抬起按键: 停止
+  25          
+  26          驱动集成:
+  27          1. 超声测距模块, 如果距离小于20cm (连续3次), 停车 (蜂鸣器响起3次)
+  28          2. 电池电压检测, 如果电压小于10.5V (连续5次), 停车 (蜂鸣器响起5次)
+  29          
+  30          ***********************/
+  31          static void GPIO_config(void) {
+  32   1          
+  33   1      }
+  34          
+  35          void UART_config(void) {
+  36   1        // >>> 记得添加 NVIC.c, UART.c, UART_Isr.c <<<
+  37   1        COMx_InitDefine               COMx_InitStructure;                                     //结构定义
+  38   1        COMx_InitStructure.UART_Mode      = UART_8bit_BRTx;   //模式, UART_ShiftRight,UART_8bit_BRTx,UART_9bit,UAR
+             -T_9bit_BRTx
+  39   1        COMx_InitStructure.UART_BRT_Use   = BRT_Timer1;                       //选择波特率发生器, BRT_Timer1, BRT_Timer2 (注意: 串口
+             -2固定使用BRT_Timer2)
+  40   1        COMx_InitStructure.UART_BaudRate  = 115200ul;                 //波特率, 一般 110 ~ 115200
+  41   1        COMx_InitStructure.UART_RxEnable  = ENABLE;                           //接收允许,   ENABLE或DISABLE
+  42   1        COMx_InitStructure.BaudRateDouble = DISABLE;                  //波特率加倍, ENABLE或DISABLE
+  43   1        UART_Configuration(UART1, &COMx_InitStructure);               //初始化串口1 UART1,UART2,UART3,UART4
+  44   1      
+  45   1        NVIC_UART1_Init(ENABLE,Priority_1);           //中断使能, ENABLE/DISABLE; 优先级(低到高) Priority_0,Priority_1,Pr
+             -iority_2,Priority_3
+  46   1        UART1_SW(UART1_SW_P30_P31);           // 引脚选择, UART1_SW_P30_P31,UART1_SW_P36_P37,UART1_SW_P16_P17,UART1_SW_P4
+             -3_P44
+  47   1      }
+  48          
+  49          void sys_init() {
+  50   1          EAXSFR();// 外部扩展寄存器使能
+C51 COMPILER V9.60.7.0   MAIN                                                              11/10/2025 17:35:03 PAGE 2   
+
+  51   1      
+  52   1          GPIO_config();
+  53   1          UART_config();
+  54   1      //    PWM_config();
+  55   1      
+  56   1          Light_init();
+  57   1          Key_init();
+  58   1          Battery_init();
+  59   1          Buzzer_init();
+  60   1          Motors_init();
+  61   1          Tracker_init();
+  62   1          
+  63   1          EA = 1;
+  64   1      }
+  65          
+  66          // 这里函数名可随意, 不要使用start, 会和I2C.h里的Start冲突
+  67          void task_main() _task_ 0 {
+  68   1          // 外设初始化
+  69   1          sys_init();
+  70   1          // 创建任务 1
+  71   1          os_create_task(1);
+  72   1          // 创建任务 2
+  73   1          os_create_task(2);
+  74   1          // 结束任务 0
+  75   1          os_delete_task(0);
+  76   1      }
+  77          
+  78          u8 move_state = 0;
+  79          void Key_on_up(){
+  80   1          Light_off(LIGHT_ALL);
+  81   1          printf("Key up\n");
+  82   1      //    Motors_stop();
+  83   1          
+  84   1      }
+  85          
+  86          // F: forward前进
+  87          // B: backward后退
+  88          //u8 is_forward = 1;  
+  89          /****************************
+  90          duty:     0 ------------------------ 50 --------------------- 100
+  91          speed: B_Max                          0                       F_Max
+  92          
+  93          50 -> 60 -> .. -> 100 -> 90 -> 80 .... -> 0 -> 10 -> 20 ...-> 50
+  94          ****************************/
+  95          
+  96          float duty = 50.0f;
+  97          int direction_step = 10;
+  98          
+  99          u8 is_tracking = FALSE; // 循迹中
+ 100          
+ 101          void Key_on_down(){
+ 102   1          float Vbat = 0;    
+ 103   1          Light_on(LIGHT_ALL);
+ 104   1          printf("Key down\n");
+ 105   1              
+ 106   1          // 取反
+ 107   1          is_tracking = !is_tracking;
+ 108   1      //    
+ 109   1      //    // 0:前进, 1:后退
+ 110   1      //    switch (move_state)
+ 111   1      //    {
+ 112   1      //        case 0: Motors_forward(30); break;       // 前进
+C51 COMPILER V9.60.7.0   MAIN                                                              11/10/2025 17:35:03 PAGE 3   
+
+ 113   1      //        case 1: Motors_backward(30); break;     // 后退
+ 114   1      //        case 2: Motors_move_left(30, 1); break;    // 左平移
+ 115   1      //        case 3: Motors_move_right(30, -1); break;   // 右平移
+ 116   1      //        case 4: Motors_around(30, 1); break;    // 顺时针
+ 117   1      //        case 5: Motors_around(30, 0); break;    // 逆时针
+ 118   1      //        default: Motors_stop();break;
+ 119   1      //    } 
+ 120   1      //    move_state++;
+ 121   1      //    if(move_state > 6) move_state = 0;
+ 122   1      
+ 123   1      //    // 运行1秒，停车
+ 124   1      //    os_wait2(K_TMO, 200); // 200 * 5ms = 1000ms
+ 125   1      
+ 126   1      //    // 停车
+ 127   1      //    Motors_stop();
+ 128   1      
+ 129   1      }
+ 130          
+ 131          // 任务1: 
+ 132          void task_1() _task_ 1 {
+ 133   1          
+ 134   1          printf("task1\n");
+ 135   1          
+ 136   1          Light_off(LIGHT_ALL);
+ 137   1              
+ 138   1          while(1) {    
+ 139   2              
+ 140   2              Key_scan();        
+ 141   2              // 间隔10ms
+ 142   2              os_wait2(K_TMO, 2); // 10ms = 5ms * 2
+ 143   2          }
+ 144   1      
+ 145   1      }
+ 146          
+ 147          
+ 148          // 任务2: 
+ 149          void task_tracking() _task_ 2 {
+ 150   1          u8 states[5];
+ 151   1          u8 i = 0;
+ 152   1          
+ 153   1          int pos = 0, last_pos = -10000; // last_pos初始化为一个pos不可能出现的数字, 保证第一次能运行
+ 154   1          
+ 155   1          while(1){    
+ 156   2              // 每隔100ms读取一次LED灯状态
+ 157   2      //        Tracker_scan(states);
+ 158   2      //        printf("->");
+ 159   2      //        for(i = 0; i < 5; i++){
+ 160   2      //            printf("%d ", (int)states[i]);
+ 161   2      //        }
+ 162   2      //        printf("\n");
+ 163   2              // 获取当前循迹的目标运行角度(方向) 负数向左, 正数向右
+ 164   2              pos = Tracker_get_position();        
+ 165   2      //        printf("pos -> %d\n", pos);
+ 166   2              
+ 167   2              // 先判断是否需要运行循迹模块
+ 168   2              if(is_tracking == FALSE){           
+ 169   3                  // 保证不循迹时, 车可以停下来
+ 170   3                  Motors_stop(); 
+ 171   3                  // 减慢默认循环速度
+ 172   3                  os_wait2(K_TMO, 100); // 500ms            
+ 173   3                  printf("停止中, 按下按钮开始巡线\n");            
+ 174   3                  // 跳过本次循环
+C51 COMPILER V9.60.7.0   MAIN                                                              11/10/2025 17:35:03 PAGE 4   
+
+ 175   3                  continue;
+ 176   3              }
+ 177   2              
+ 178   2              // 再判断是否需要保持之前的运动方式
+ 179   2              if(pos == last_pos){        
+ 180   3                  os_wait2(K_TMO, 2); // 2 * 5ms = 10ms                  
+ 181   3                  // 跳过本次循环, 保持之前的运动方式, 避免频繁操作寄存器
+ 182   3                  continue;
+ 183   3              }
+ 184   2              
+ 185   2              // 记录最后一次黑线位置
+ 186   2              last_pos = pos;
+ 187   2              
+ 188   2              if(pos < 0){ 
+ 189   3                  Motors_around(30, 0); // 向左转(逆时针)
+ 190   3                  printf("左转: %d\n", pos);
+ 191   3              }else if(pos > 0){
+ 192   3                  Motors_around(30, 1); // 向右转(顺时针)            
+ 193   3                  printf("右转: %d\n", pos);            
+ 194   3              }else {
+ 195   3                  Motors_forward(30);
+ 196   3                  printf("直行: %d\n", pos);            
+ 197   3              }
+ 198   2              
+ 199   2      //        os_wait2(K_TMO, 20); // 20 * 5ms = 100ms
+ 200   2              
+ 201   2              os_wait2(K_TMO, 2); // 2 * 5ms = 10ms 加快传感器感知频率
+ 202   2              
+ 203   2          }
+ 204   1      }
+*** WARNING C280 IN LINE 150 OF User\main.c: 'states': unreferenced local variable
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    395    ----
+   CONSTANT SIZE    =     81    ----
+   XDATA SIZE       =      8      23
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

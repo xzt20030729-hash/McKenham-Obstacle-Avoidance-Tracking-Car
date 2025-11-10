@@ -1,0 +1,237 @@
+C51 COMPILER V9.60.7.0   MOTORS                                                            11/10/2025 17:35:04 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE MOTORS
+OBJECT MODULE PLACED IN .\Objects\Motors.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE Driver\Motors.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(.\Lib;.\Driver;.\U
+                    -ser) DEBUG OBJECTEXTEND PRINT(.\Listings\Motors.lst) OBJECT(.\Objects\Motors.obj)
+
+line level    source
+
+   1          #include "Motors.h"
+   2          #include "GPIO.h"
+   3          #include "Switch.h"
+   4          #include "NVIC.h"
+   5          #include        "STC8H_PWM.h"
+   6          
+   7          // Left Front  ZuoQian
+   8          #define LF_P    P14
+   9          #define LF_N    P15
+  10          
+  11          static void GPIO_config(void) {
+  12   1          // Motor P14,P15 推挽输出
+  13   1          P1_MODE_OUT_PP(GPIO_Pin_4 | GPIO_Pin_5);
+  14   1          // Motor P16,P17 推挽输出
+  15   1          P1_MODE_OUT_PP(GPIO_Pin_6 | GPIO_Pin_7);
+  16   1          // Motor P20,P21 推挽输出
+  17   1          P2_MODE_OUT_PP(GPIO_Pin_0 | GPIO_Pin_1);
+  18   1          // Motor P22,P23 推挽输出
+  19   1          P2_MODE_OUT_PP(GPIO_Pin_2 | GPIO_Pin_3);
+  20   1          
+  21   1          // 都拉低或默认拉高都可以
+  22   1          P1 &= ~GPIO_Pin_HIGH; // 把 P14,P15,P16,P17 拉低
+  23   1          P2 &= ~GPIO_Pin_LOW; //  把 P20,P21,P22,P23 拉低
+  24   1      }
+  25          
+  26          #define PERIOD (MAIN_Fosc / 1000)  // 1000Hz
+  27          
+  28          /**********************
+  29          将范围在[-100, 100]的速度值转成对应的占空比[0, 100]
+  30          
+  31          speed: 后退                         停止                      前进
+  32          
+  33          speed: -100 ------------------------  0 --------------------- 100
+  34          duty:     0 ------------------------ 50 --------------------- 100
+  35          ************************/
+  36          float speed2duty(float speed){
+  37   1          // [-100, 100] / 2  ==> [-50, 50]
+  38   1          // [-50, 50] + 50   ==> [-100, 100]
+  39   1          return speed / 2 + 50;
+  40   1      }
+  41          
+  42          /****************
+  43          速度范围: [-100, 0, 100]
+  44          占空比范围: [0, 50, 100]
+  45          PWM_Duty: [0, PERIOD]   
+  46          ******************/
+  47          void    PWM_config(MotorCfg cfg)
+  48          {
+  49   1          PWMx_InitDefine             PWMx_InitStructure;
+  50   1          // 将所有速度值转成PWM_Duty占空比
+  51   1          float LF_duty = speed2duty(cfg.LF_speed);
+  52   1          float RF_duty = speed2duty(cfg.RF_speed);
+  53   1          float LB_duty = speed2duty(cfg.LB_speed);
+  54   1          float RB_duty = speed2duty(cfg.RB_speed);
+C51 COMPILER V9.60.7.0   MOTORS                                                            11/10/2025 17:35:04 PAGE 2   
+
+  55   1          
+  56   1          // 如果指定轮子的speed不是0, 才选择该输出通道    
+  57   1          u8 is_LF_enable = (cfg.LF_speed != 0); // 如果速度非0, 才启用对应的输出通道
+  58   1          u8 is_RF_enable = (cfg.RF_speed != 0); // 如果速度非0, 才启用对应的输出通道
+  59   1          u8 is_LB_enable = (cfg.LB_speed != 0); // 如果速度非0, 才启用对应的输出通道
+  60   1          u8 is_RB_enable = (cfg.RB_speed != 0); // 如果速度非0, 才启用对应的输出通道
+  61   1          
+  62   1              // 配置PWM1 左后轮 LB
+  63   1              PWMx_InitStructure.PWM_Mode             = CCMRn_PWM_MODE1;      //模式,         CCMRn_FREEZE,CCMRn_MATCH_VALID,CCMRn_MATCH_I
+             -NVALID,CCMRn_ROLLOVER,CCMRn_FORCE_INVALID,CCMRn_FORCE_VALID,CCMRn_PWM_MODE1,CCMRn_PWM_MODE2
+  64   1              PWMx_InitStructure.PWM_Duty             = PERIOD * LB_duty / 100;       //PWM占空比时间, 0~Period
+  65   1              PWMx_InitStructure.PWM_EnoSelect        = is_LB_enable ? (ENO1P | ENO1N) : 0x00;        //输出通道选择, ENO1P,ENO1N,ENO
+             -2P,ENO2N,ENO3P,ENO3N,ENO4P,ENO4N / ENO5P,ENO6P,ENO7P,ENO8P
+  66   1              PWM_Configuration(PWM1, &PWMx_InitStructure);                   //初始化PWM
+  67   1              // 配置PWM2 右后轮 RB
+  68   1              PWMx_InitStructure.PWM_Mode             = CCMRn_PWM_MODE2;      //模式,         CCMRn_FREEZE,CCMRn_MATCH_VALID,CCMRn_MATCH_I
+             -NVALID,CCMRn_ROLLOVER,CCMRn_FORCE_INVALID,CCMRn_FORCE_VALID,CCMRn_PWM_MODE1,CCMRn_PWM_MODE2
+  69   1              PWMx_InitStructure.PWM_Duty             = PERIOD * RB_duty / 100;       //PWM占空比时间, 0~Period
+  70   1              PWMx_InitStructure.PWM_EnoSelect    = is_RB_enable ? (ENO2P | ENO2N) : 0x00;    //输出通道选择, ENO1P,ENO1N,
+             -ENO2P,ENO2N,ENO3P,ENO3N,ENO4P,ENO4N / ENO5P,ENO6P,ENO7P,ENO8P
+  71   1              PWM_Configuration(PWM2, &PWMx_InitStructure);                   //初始化PWM
+  72   1              // 配置PWM3 左前轮 LF    
+  73   1              PWMx_InitStructure.PWM_Mode             = CCMRn_PWM_MODE1;      //模式,         CCMRn_FREEZE,CCMRn_MATCH_VALID,CCMRn_MATCH_I
+             -NVALID,CCMRn_ROLLOVER,CCMRn_FORCE_INVALID,CCMRn_FORCE_VALID,CCMRn_PWM_MODE1,CCMRn_PWM_MODE2
+  74   1              PWMx_InitStructure.PWM_Duty             = PERIOD * LF_duty / 100;       //PWM占空比时间, 0~Period
+  75   1              PWMx_InitStructure.PWM_EnoSelect    = is_LF_enable ? (ENO3P | ENO3N) : 0x00;    //输出通道选择, ENO1P,ENO1N,
+             -ENO2P,ENO2N,ENO3P,ENO3N,ENO4P,ENO4N / ENO5P,ENO6P,ENO7P,ENO8P
+  76   1              PWM_Configuration(PWM3, &PWMx_InitStructure);   
+  77   1              // 配置PWM4 右前轮 RF
+  78   1          PWMx_InitStructure.PWM_Mode                 = CCMRn_PWM_MODE2;      //模式,         CCMRn_FREEZE,CCMRn_MATCH_VALID,CCMRn_MATC
+             -H_INVALID,CCMRn_ROLLOVER,CCMRn_FORCE_INVALID,CCMRn_FORCE_VALID,CCMRn_PWM_MODE1,CCMRn_PWM_MODE2
+  79   1          PWMx_InitStructure.PWM_Duty                 = PERIOD * RF_duty / 100;       //PWM占空比时间, 0~Period
+  80   1          PWMx_InitStructure.PWM_EnoSelect    = is_RF_enable ? (ENO4P | ENO4N) : 0x00;        //输出通道选择, ENO1P,ENO
+             -1N,ENO2P,ENO2N,ENO3P,ENO3N,ENO4P,ENO4N / ENO5P,ENO6P,ENO7P,ENO8P
+  81   1          PWM_Configuration(PWM4, &PWMx_InitStructure);
+  82   1      
+  83   1              // 配置PWMA
+  84   1          PWMx_InitStructure.PWM_Period   = PERIOD - 1;                       //周期时间,   0~65535
+  85   1          PWMx_InitStructure.PWM_DeadTime = 10;                                       //死区发生器设置, 0~255
+  86   1          PWMx_InitStructure.PWM_MainOutEnable= ENABLE;                       //主输出使能, ENABLE,DISABLE
+  87   1          PWMx_InitStructure.PWM_CEN_Enable   = ENABLE;                       //使能计数器, ENABLE,DISABLE
+  88   1          PWM_Configuration(PWMA, &PWMx_InitStructure);                       //初始化PWM通用寄存器,  PWMA,PWMB
+  89   1      
+  90   1              // 切换PWM通道
+  91   1              PWM1_SW(PWM1_SW_P20_P21);                       //PWM1_SW_P10_P11,PWM1_SW_P20_P21,PWM1_SW_P60_P61
+  92   1              PWM2_SW(PWM2_SW_P22_P23);                       //PWM2_SW_P12_P13,PWM2_SW_P22_P23,PWM2_SW_P62_P63
+  93   1              PWM3_SW(PWM3_SW_P14_P15);                       //PWM3_SW_P14_P15,PWM3_SW_P24_P25,PWM3_SW_P64_P65
+  94   1          PWM4_SW(PWM4_SW_P16_P17);                   //PWM4_SW_P16_P17,PWM4_SW_P26_P27,PWM4_SW_P66_P67,PWM4_SW_P34_P33
+  95   1      
+  96   1              // 初始化PWMA的中断
+  97   1          NVIC_PWM_Init(PWMA,DISABLE,Priority_0);
+  98   1      }
+  99          
+ 100          void Motors_init(){
+ 101   1          GPIO_config();
+ 102   1      }
+ 103          
+ 104          // [0, 100] -> [50, 100]
+ 105          void Motors_forward(float speed){
+ 106   1          MotorCfg cfg;
+ 107   1          cfg.LF_speed = speed;
+ 108   1          cfg.RF_speed = speed;
+C51 COMPILER V9.60.7.0   MOTORS                                                            11/10/2025 17:35:04 PAGE 3   
+
+ 109   1          cfg.LB_speed = speed;
+ 110   1          cfg.RB_speed = speed;
+ 111   1          PWM_config(cfg);
+ 112   1      }
+ 113          
+ 114          // [0, 100] -> [50, 0]
+ 115          void Motors_backward(float speed){
+ 116   1          MotorCfg cfg;
+ 117   1          cfg.LF_speed = -speed;
+ 118   1          cfg.RF_speed = -speed;
+ 119   1          cfg.LB_speed = -speed;
+ 120   1          cfg.RB_speed = -speed;
+ 121   1          PWM_config(cfg);
+ 122   1      }
+ 123          
+ 124          // 左平移
+ 125          // dir: 0左平移, 1左前, -1左后
+ 126          void Motors_move_left(float speed, int8 dir){    
+ 127   1          MotorCfg cfg = {0, 0, 0, 0};
+ 128   1          
+ 129   1      //    if(dir == 1){ // 左前移动
+ 130   1      //        cfg.RF_speed = speed; 
+ 131   1      //        cfg.LB_speed = speed; 
+ 132   1      //    } else if(dir == -1){ // 左后移动
+ 133   1      //        cfg.LF_speed = -speed;
+ 134   1      //        cfg.RB_speed = -speed;        
+ 135   1      //    } else { // 左平移
+ 136   1      //        cfg.RF_speed = speed; 
+ 137   1      //        cfg.LB_speed = speed; 
+ 138   1      //        cfg.LF_speed = -speed;
+ 139   1      //        cfg.RB_speed = -speed;        
+ 140   1      //    }
+ 141   1          
+ 142   1          if(dir == 1 || dir == 0){ // 左前移动
+ 143   2              cfg.RF_speed = speed; 
+ 144   2              cfg.LB_speed = speed; 
+ 145   2          } 
+ 146   1      
+ 147   1          if(dir == -1 || dir == 0){ // 左后移动
+ 148   2              cfg.LF_speed = -speed;
+ 149   2              cfg.RB_speed = -speed;        
+ 150   2          }
+ 151   1          
+ 152   1          PWM_config(cfg);
+ 153   1      }
+ 154          // 右平移
+ 155          // dir: 0右平移, 1右前, -1右后
+ 156          void Motors_move_right(float speed, int8 dir){
+ 157   1      
+ 158   1          MotorCfg cfg = {0, 0, 0, 0};
+ 159   1          
+ 160   1          if(dir == 1){ // 右前移动
+ 161   2              cfg.LF_speed = speed;
+ 162   2              cfg.RB_speed = speed;
+ 163   2          } else if(dir == -1){ // 右后移动
+ 164   2              cfg.RF_speed = -speed;
+ 165   2              cfg.LB_speed = -speed;
+ 166   2          } else { // 右平移
+ 167   2              cfg.LF_speed = speed;
+ 168   2              cfg.RB_speed = speed;
+ 169   2              cfg.RF_speed = -speed;
+ 170   2              cfg.LB_speed = -speed;      
+C51 COMPILER V9.60.7.0   MOTORS                                                            11/10/2025 17:35:04 PAGE 4   
+
+ 171   2          }
+ 172   1          PWM_config(cfg);
+ 173   1      }
+ 174          
+ 175          // 原地转 dir:1 顺时针,  dir: 0逆时针
+ 176          void Motors_around(float speed, char dir){
+ 177   1          MotorCfg cfg;
+ 178   1          if(dir){ // 顺时针    
+ 179   2              cfg.LF_speed = speed;
+ 180   2              cfg.RF_speed = -speed;
+ 181   2              cfg.LB_speed = speed;
+ 182   2              cfg.RB_speed = -speed;
+ 183   2          }else {  // 逆时针        
+ 184   2              cfg.LF_speed = -speed;
+ 185   2              cfg.RF_speed = speed;
+ 186   2              cfg.LB_speed = -speed;
+ 187   2              cfg.RB_speed = speed;
+ 188   2          }
+ 189   1          PWM_config(cfg);
+ 190   1      }
+ 191          
+ 192          void Motors_stop(){
+ 193   1          MotorCfg cfg;
+ 194   1          cfg.LF_speed = 0;
+ 195   1          cfg.RF_speed = 0;
+ 196   1          cfg.LB_speed = 0;
+ 197   1          cfg.RB_speed = 0;
+ 198   1          PWM_config(cfg);
+ 199   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1468    ----
+   CONSTANT SIZE    =     32    ----
+   XDATA SIZE       =   ----     164
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

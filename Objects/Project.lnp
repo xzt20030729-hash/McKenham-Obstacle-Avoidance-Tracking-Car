@@ -1,0 +1,21 @@
+".\Objects\main.obj",
+".\Objects\UART.obj",
+".\Objects\UART_Isr.obj",
+".\Objects\GPIO.obj",
+".\Objects\Delay.obj",
+".\Objects\NVIC.obj",
+".\Objects\ADC.obj",
+".\Objects\ADC_Isr.obj",
+".\Objects\STC8H_PWM.obj",
+".\Objects\STC8H_PWM_Isr.obj",
+".\Objects\Conf_tny.obj",
+".\Objects\Ultrasonic.obj",
+".\Objects\Light.obj",
+".\Objects\Key.obj",
+".\Objects\Battery.obj",
+".\Objects\Buzzer.obj",
+".\Objects\Motors.obj",
+".\Objects\Tracker.obj" 
+TO ".\Objects\Project" Rtx51Tiny 
+PRINT(".\Listings\Project.m51") RAMSIZE(256) 
+DISABLEWARNING (16,15) 
